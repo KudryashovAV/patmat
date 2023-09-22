@@ -73,30 +73,9 @@ trait Huffman extends HuffmanInterface:
    * }
    */
   def times(chars: List[Char]): List[(Char, Int)] =
-    var acc = Array[(Char, Int)]()
+    if chars.isEmpty then Nil
+    else (chars.head, chars.count(char => char == chars.head)) :: times(chars.filter(c => c != chars.head))
 
-    @tailrec
-    def iter(charsCollection: List[Char], memo: Array[(Char, Int)]): Array[(Char, Int)] =
-      if charsCollection.isEmpty then
-        acc
-      else
-        val existPair = acc.find { tuple => tuple._1 == charsCollection.head }
-
-        if existPair.nonEmpty then
-          val pairIndex = acc.indexOf(existPair.get)
-          val bufAcc = acc.toBuffer
-          bufAcc.remove(pairIndex)
-          acc = bufAcc.toArray
-          acc = acc :+ ((charsCollection.head, existPair.get._2 + 1))
-
-        else
-          acc = acc :+ (charsCollection.head, 1)
-
-        iter(charsCollection.tail, acc)
-
-    iter(chars, acc)
-
-    acc.toList
 
   /**
    * Returns a list of `Leaf` nodes for a given frequency table `freqs`.
@@ -106,9 +85,7 @@ trait Huffman extends HuffmanInterface:
    * of a leaf is the frequency of the character.
    */
   def makeOrderedLeafList(freqs: List[(Char, Int)]): List[Leaf] =
-    freqs.map { a => Leaf(a._1, a._2) }.sortBy {
-      _.weight
-    }
+    freqs.map((char, count) => Leaf(char, count)).sortBy(_.weight)
 
   /**
    * Checks whether the list `trees` contains only one single code tree.
@@ -127,19 +104,12 @@ trait Huffman extends HuffmanInterface:
    * If `trees` is a list of less than two elements, that list should be returned
    * unchanged.
    */
-  def combine(trees: List[CodeTree]): List[CodeTree] =
-    def insertCodeTree(codeTree: CodeTree, list: List[CodeTree]): List[CodeTree] =
-      if list.isEmpty then
-        List(codeTree)
-      else if weight(codeTree) <= weight(list.head) then
-        codeTree :: list
-      else
-        list.head :: insertCodeTree(codeTree, list.tail)
-
-    if trees.size < 2 then
-      trees
-    else
-      insertCodeTree(makeCodeTree(trees.head, trees(1)), trees.filter(tree => tree != trees.head && tree != trees(1)))
+  def combine(trees: List[CodeTree]): List[CodeTree] = trees match {
+    case Nil | _ :: Nil => trees
+    case x :: y :: ts => makeCodeTree(x, y) :: ts sortBy {
+      weight
+    }
+  }
 
   /**
    * This function will be called in the following way:
@@ -165,10 +135,7 @@ trait Huffman extends HuffmanInterface:
    * frequencies from that text and creates a code tree based on them.
    */
   def createCodeTree(chars: List[Char]): CodeTree =
-    val sortedCharsList = times(chars)
-    val orderedLeafList = makeOrderedLeafList(sortedCharsList)
-
-    until(singleton, combine)(orderedLeafList).head
+    until(singleton, combine)(makeOrderedLeafList(times(chars))).head
 
   // Part 3: Decoding
 
@@ -180,9 +147,8 @@ trait Huffman extends HuffmanInterface:
    */
   def decode(tree: CodeTree, bits: List[Bit]): List[Char] =
     def decodeBit(codeTree: CodeTree, bitList: List[Bit]): List[Char] = codeTree match
-      case l: Leaf if bitList.isEmpty => List(l.char)
-      case l: Leaf => l.char :: decodeBit(tree, bitList)
-      case f: Fork => if bitList.head == 0 then decodeBit(f.left, bitList.tail) else decodeBit(f.right, bitList.tail)
+      case Leaf(char, _) => if bitList.isEmpty then List(char) else char :: decodeBit(tree, bitList)
+      case Fork(left, right, _, _) => if bitList.head == 0 then decodeBit(left, bitList.tail) else decodeBit(right, bitList.tail)
 
     decodeBit(tree, bits)
 
@@ -212,12 +178,12 @@ trait Huffman extends HuffmanInterface:
    */
   def encode(tree: CodeTree)(text: List[Char]): List[Bit] =
     def isContainChar(codeTree: CodeTree, char: Char): Boolean = codeTree match
-      case l: Leaf => l.char == char
-      case f: Fork => f.chars.contains(char)
+      case Leaf(ch, _) => ch == char
+      case Fork(_, _, ch, _) => ch.contains(char)
 
     def encodeChar(codeTree: CodeTree, char: Char): List[Bit] = codeTree match
-      case l: Leaf => Nil
-      case f: Fork => if isContainChar(f.left, char) then 0 :: encodeChar(f.left, char) else 1 :: encodeChar(f.right, char)
+      case Leaf(_, _) => Nil
+      case Fork(left, right, _, _) => if isContainChar(left, char) then 0 :: encodeChar(left, char) else 1 :: encodeChar(right, char)
 
     if text.isEmpty then
       Nil
@@ -235,7 +201,7 @@ trait Huffman extends HuffmanInterface:
   def codeBits(table: CodeTable)(char: Char): List[Bit] =
     table.find { case (c, bs) => c == char }.map {
       _._2
-    }.getOrElse(Nil)
+    }.get
 
   /**
    * Given a code tree, create a code table which contains, for every character in the
