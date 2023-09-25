@@ -74,8 +74,7 @@ trait Huffman extends HuffmanInterface:
    */
   def times(chars: List[Char]): List[(Char, Int)] =
     if chars.isEmpty then Nil
-    else (chars.head, chars.count(char => char == chars.head)) :: times(chars.filter(c => c != chars.head))
-
+    else (chars.head, chars.count(_ == chars.head)) :: times(chars.filter(_ != chars.head))
 
   /**
    * Returns a list of `Leaf` nodes for a given frequency table `freqs`.
@@ -105,10 +104,8 @@ trait Huffman extends HuffmanInterface:
    * unchanged.
    */
   def combine(trees: List[CodeTree]): List[CodeTree] = trees match {
-    case Nil | _ :: Nil => trees
-    case x :: y :: ts => makeCodeTree(x, y) :: ts sortBy {
-      weight
-    }
+    case x :: y :: ts => makeCodeTree(x, y) :: ts.sortBy(weight)
+    case _ => trees
   }
 
   /**
@@ -146,13 +143,17 @@ trait Huffman extends HuffmanInterface:
    * the resulting list of characters.
    */
   def decode(tree: CodeTree, bits: List[Bit]): List[Char] =
-    def decodeBit(codeTree: CodeTree, bitList: List[Bit]): List[Char] = codeTree match
-      case Leaf(char, _) => if bitList.isEmpty then List(char) else char :: decodeBit(tree, bitList)
-      case Fork(left, right, _, _) => if bitList.head == 0 then decodeBit(left, bitList.tail) else decodeBit(right, bitList.tail)
+    @tailrec
+    def decodeBit(codeTree: CodeTree, bitList: List[Bit], chars: List[Char]): List[Char] =
+      (codeTree, bitList) match
+        case (Leaf(char, _), Nil) => char :: chars
+        case (Leaf(char, _), listOfBits) => decodeBit(tree, listOfBits, char :: chars)
+        case (Fork(left, right, _, _), 0 :: listOfBits) => decodeBit(left, listOfBits, chars)
+        case (Fork(left, right, _, _), 1 :: listOfBits) => decodeBit(right, listOfBits, chars)
 
-    decodeBit(tree, bits)
+    decodeBit(tree, bits, Nil).reverse
 
-/**
+  /**
    * A Huffman coding tree for the French language.
    * Generated from the data given at
    * http://fr.wikipedia.org/wiki/Fr%C3%A9quence_d%27apparition_des_lettres_en_fran%C3%A7ais
@@ -177,18 +178,14 @@ trait Huffman extends HuffmanInterface:
    * into a sequence of bits.
    */
   def encode(tree: CodeTree)(text: List[Char]): List[Bit] =
-    def isContainChar(codeTree: CodeTree, char: Char): Boolean = codeTree match
-      case Leaf(ch, _) => ch == char
-      case Fork(_, _, ch, _) => ch.contains(char)
+    text.foldLeft(List[Bit]()) { (acc, c) =>
+      @tailrec
+      def rec(tree: CodeTree, acc: List[Bit]): List[Bit] = tree match
+        case Leaf(c, _) => acc
+        case Fork(left, right, _, _) => if chars(left).contains(c) then rec(left, 0 :: acc) else rec(right, 1 :: acc)
 
-    def encodeChar(codeTree: CodeTree, char: Char): List[Bit] = codeTree match
-      case Leaf(_, _) => Nil
-      case Fork(left, right, _, _) => if isContainChar(left, char) then 0 :: encodeChar(left, char) else 1 :: encodeChar(right, char)
-
-    if text.isEmpty then
-      Nil
-    else
-      encodeChar(tree, text.head) ::: encode(tree)(text.tail)
+      rec(tree, acc)
+    }.reverse
 
   // Part 4b: Encoding using code table
 
@@ -199,9 +196,7 @@ trait Huffman extends HuffmanInterface:
    * the code table `table`.
    */
   def codeBits(table: CodeTable)(char: Char): List[Bit] =
-    table.find { case (c, bs) => c == char }.map {
-      _._2
-    }.get
+    table.find((c, bs) => c == char).get._2
 
   /**
    * Given a code tree, create a code table which contains, for every character in the
@@ -211,10 +206,8 @@ trait Huffman extends HuffmanInterface:
    * a valid code tree that can be represented as a code table. Using the code tables of the
    * sub-trees, think of how to build the code table for the entire tree.
    */
-  def convert(tree: CodeTree): CodeTable = tree match
-    case Leaf(c, w) => List((c, Nil))
-    case Fork(left, right, cs, w) => mergeCodeTables(convert(left), convert(right))
-
+  def convert(tree: CodeTree): CodeTable =
+    chars(tree).map(char => char -> encode(tree)(List(char)))
 
   /**
    * This function takes two code tables and merges them into one. Depending on how you
@@ -234,4 +227,10 @@ trait Huffman extends HuffmanInterface:
 
 object Huffman extends Huffman
 
-@main def hello() = println(Huffman.encode(Fork(Leaf('w', 2), Fork(Fork(Leaf('e', 1), Leaf('d', 1), List('e', 'd'), 2), Fork(Leaf('f', 1), Leaf('s', 1), List('f', 's'), 2), List('e', 'd', 'f', 's'), 4), List('w', 'e', 'd', 'f', 's'), 6))(List('w', 'f', 's', 'e', 'd', 'w')))
+object Main extends App {
+
+  import Huffman._
+
+  println(encode(frenchCode)(decodedSecret))
+  println(quickEncode(frenchCode)(decodedSecret))
+}
